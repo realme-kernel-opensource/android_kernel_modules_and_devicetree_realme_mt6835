@@ -1018,15 +1018,27 @@ static void oplus_chglib_parallel_subs_callback(struct mms_subscribe *subs,
 static int vphy_set_usb_dischg_enable(struct oplus_chg_ic_dev *ic_dev, bool enable)
 {
 	struct vphy_chip *chip;
+	int rc = 0;
 
-	if (!ic_dev->online)
-		return 0;
+	if (!ic_dev->online) {
+		chg_err("ic_dev is offline\n");
+		return -ENODEV;
+	}
 	chip = oplus_chglib_get_vphy_chip(ic_dev->dev);
+	if ((chip == NULL) || (chip->vinf == NULL)) {
+		chg_err("vphy_chip/vinf is NULL\n");
+		return -ENODEV;
+	}
 
-	if (chip && chip->vinf && chip->vinf->vphy_set_usb_dischg_enable)
+	/*to ap voocphy*/
+	if (chip->vinf->vphy_set_usb_dischg_enable) {
 		chip->vinf->vphy_set_usb_dischg_enable(chip->dev, enable);
+	} else {
+		chg_err("vphy_set_usb_dischg_enable not supported\n");
+		rc = -ENOTSUPP;
+	}
 
-	return 0;
+	return rc;
 }
 
 static void oplus_chglib_subscribe_parallel_topic(struct oplus_mms *topic,

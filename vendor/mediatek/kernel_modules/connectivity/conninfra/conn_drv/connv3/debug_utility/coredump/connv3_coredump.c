@@ -506,7 +506,6 @@ int connv3_coredump_start(void* handler, const int drv, const char *reason, cons
         }
 
 	//#ifdef OPLUS_FEATURE_WIFI_MINIDUMP
-	//fangbinghua@CONNECTIVITY.WIFI.HARDWARE.MINIDUMP.1162003, 2021/07/29
 	/* Parse issue info */
 	connv3_coredump_info_analysis(ctx, drv, reason, dump_msg);
 
@@ -535,7 +534,6 @@ int connv3_coredump_start(void* handler, const int drv, const char *reason, cons
 	}
 
 	//#ifndef OPLUS_FEATURE_WIFI_MINIDUMP
-	//fangbinghua@CONNECTIVITY.WIFI.HARDWARE.MINIDUMP.1162003, 2021/07/29
 	/*
 	// Parse issue info
 	connv3_coredump_info_analysis(ctx, drv, reason, dump_msg);

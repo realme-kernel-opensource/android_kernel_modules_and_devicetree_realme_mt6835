@@ -2263,7 +2263,7 @@ static void oplus_wired_subscribe_wlschg_topic(struct oplus_mms *topic, void *pr
 	chip->wls_topic = topic;
 	chip->wls_subs = oplus_mms_subscribe(chip->wls_topic, chip,
 				     oplus_wired_wlschg_subs_callback,
-				     "mms_wired");
+				     "chg_wired");
 	if (IS_ERR_OR_NULL(chip->wls_subs)) {
 		chg_err("subscribe wls topic error, rc=%ld\n", PTR_ERR(chip->wls_subs));
 		return;

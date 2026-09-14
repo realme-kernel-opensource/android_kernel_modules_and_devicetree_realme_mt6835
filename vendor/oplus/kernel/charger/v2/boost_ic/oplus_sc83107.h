@@ -175,12 +175,18 @@ struct sc83107_chip {
 	bool force_bp_retry_enabled;
 
 	/* Track upload mechanism */
-	struct work_struct track_upload_work;
+	struct delayed_work track_upload_work;
 	bool track_upload_pending;
 
 	/* IRQ handler work - for processing interrupt in process context */
-	struct work_struct irq_handler_work;
+	struct delayed_work irq_handler_work;
 	bool irq_handler_work_pending;
+
+	/* GPIO state tracking */
+	bool gpio_pulled_down;
+
+	/* Suspend state tracking */
+	atomic_t suspended;
 
 	/* Wired topic subscription */
 	struct oplus_mms *wired_topic;
@@ -202,6 +208,16 @@ struct sc83107_chip {
 	u8 dischg_boost_err_reg08_val; /* Register 0x08 value to be uploaded */
 	u8 dischg_boost_err_reg09_val; /* Register 0x09 value to be uploaded */
 	u8 dischg_boost_err_reg0a_val; /* Register 0x0A value to be uploaded */
+
+	/* Wakelock for critical I2C operations */
+	struct wakeup_source *i2c_wake_lock;
+
+	/* Suspend/Resume CV configuration */
+	int suspend_cv_mv;
+	int resume_cv_mv;
+
+	/* I2C bus reset feature control */
+	bool i2c_bus_reset_enable;
 };
 
 enum sc83107_flag_type {

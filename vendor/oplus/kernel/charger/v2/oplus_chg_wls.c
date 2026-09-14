@@ -485,6 +485,7 @@ struct oplus_chg_wls_pen_info {
 	u64 mac_addr;
 	int wlspen_boost_vol;
 	int wlspen_plugin_soc;
+	bool support_wlspen_cover_sync_magcvr;
 	struct oplus_chg_wls_pen_track track;
 };
 
@@ -1088,7 +1089,9 @@ static int oplus_chg_wls_choose_bpp_epp_curve(struct oplus_chg_wls *wls_dev);
 static void oplus_chg_wls_high_temp_check(enum high_temp_voter voter, struct oplus_chg_wls *wls_dev, int icl_ma);
 static void oplus_chg_wls_high_temp_update_track_info(struct oplus_chg_wls *wls_dev, char *buff);
 static int oplus_chg_wls_epp_force_to_bpp_loop_check(struct oplus_chg_wls *wls_dev);
-
+#if IS_ENABLED(CONFIG_OPLUS_MAGCVR_NOTIFY) && !IS_ENABLED(CONFIG_DISABLE_OPLUS_FUNCTION)
+static void magcvr_notifier_handler(struct oplus_chg_wls *wls_dev);
+#endif
 
 __maybe_unused static bool is_nor_fv_votable_available(struct oplus_chg_wls *wls_dev)
 {
@@ -2727,6 +2730,23 @@ static int oplus_chg_wls_quiet_mode_vote_callback(struct votable *votable, void 
 	return 0;
 }
 
+#define WLS_AC_OV_PRODUCT_ID	0x0001
+static void oplus_chg_wls_update_ac_ov_handle(struct oplus_chg_wls *wls_dev, u32 product_id)
+{
+	int rc;
+	int ac_ov_flag = 0;
+
+	if (product_id != WLS_AC_OV_PRODUCT_ID)
+		return;
+	rc = oplus_chg_wls_rx_get_ac_ov_flag(wls_dev->wls_rx->rx_ic, &ac_ov_flag);
+	if (rc < 0)
+		return;
+	if (ac_ov_flag > 0) {
+		chg_info("ac_ov_flag: %d, enter quiet mode\n", ac_ov_flag);
+		vote(wls_dev->quiet_mode_votable, WLS_AC_OV_QUIET_VOTER, true, 0, false);
+	}
+}
+
 static int oplus_chg_wls_set_ext_pwr_enable(struct oplus_chg_wls *wls_dev, bool en)
 {
 	int rc;
@@ -3031,6 +3051,7 @@ static void oplus_chg_wls_data_msg_handler(struct oplus_chg_wls *wls_dev,
 			wls_status->product_id = (data[0] << 8) | data[1];
 			chg_info("product_id:0x%x, tx_product_id_done:%d\n",
 				wls_status->product_id, wls_status->tx_product_id_done);
+			oplus_chg_wls_update_ac_ov_handle(wls_dev, wls_status->product_id);
 
 			schedule_delayed_work(&wls_dev->wls_match_q_work, 0);
 			if (wls_dev->static_config.fastchg_fod_enable && wls_status->fod_parm_for_fastchg)
@@ -4451,6 +4472,7 @@ static void oplus_chg_wls_reset_variables(struct oplus_chg_wls *wls_dev) {
 	vote(wls_dev->rx_comu_votable, CHG_LIMIT_CHG_VOTER, false, 0, false);
 	vote(wls_dev->rx_comu_votable, CHG_FULL_VOTER, false, 0, false);
 	vote(wls_dev->quiet_mode_votable, WLS_QUIET_MODE_VOTER, false, 0, false);
+	vote(wls_dev->quiet_mode_votable, WLS_AC_OV_QUIET_VOTER, false, 0, false);
 	if (!wls_dev->usb_present)
 		rerun_election(wls_dev->nor_icl_votable, false);
 	rerun_election(wls_dev->nor_fcc_votable, false);
@@ -5916,6 +5938,28 @@ static void oplus_chg_wls_wlspen_info_handle_state_change(struct oplus_chg_wls *
 	pre_connect = pen_info->connect;
 }
 
+static void oplus_chg_wls_wlspen_sync_magcvr_status(struct oplus_chg_wls *wls_dev, int cover)
+{
+	static int pre_cover = 0;
+
+	if (!wls_dev)
+		return;
+
+	if (!wls_dev->wlspen_info.support_wlspen_cover_sync_magcvr)
+		return;
+
+	if (pre_cover == cover)
+		return;
+
+	pre_cover = cover;
+	wls_dev->magcvr_status = cover ? MAGCVR_STATUS_NEAR : MAGCVR_STATUS_FAR;
+	chg_info("magcvr_status[%d]\n", wls_dev->magcvr_status);
+
+#if IS_ENABLED(CONFIG_OPLUS_MAGCVR_NOTIFY) && !IS_ENABLED(CONFIG_DISABLE_OPLUS_FUNCTION)
+	magcvr_notifier_handler(wls_dev);
+#endif
+}
+
 ssize_t oplus_chg_wls_wlspen_info_store(struct oplus_mms *mms, const char *buf, size_t count)
 {
 	struct oplus_chg_wls *wls_dev;
@@ -5952,7 +5996,7 @@ ssize_t oplus_chg_wls_wlspen_info_store(struct oplus_mms *mms, const char *buf, 
 	chg_info("cover[%d], present[%d], connect[%d], callname[%d]\n",
 		pen_info->cover, present, pen_info->connect, callname);
 
-	vote(wls_dev->rx_disable_votable, WLSPEN_COVER_VOTER, pen_info->cover, pen_info->cover ? 1 : 0, false);
+	oplus_chg_wls_wlspen_sync_magcvr_status(wls_dev, pen_info->cover);
 
 	if (!pen_info->connect)
 		pen_info->wlspen_soc = WLSPEN_SOC_INVAL;
@@ -11611,6 +11655,7 @@ static void oplus_chg_wls_pen_parse_dt(struct oplus_chg_wls *wls_dev)
 		chg_info("oplus,wlspen-boost-mv reading failed, rc=%d\n", rc);
 		pen_info->wlspen_boost_vol = WLS_TRX_MODE_VOL_MV;
 	}
+	pen_info->support_wlspen_cover_sync_magcvr = of_property_read_bool(node, "oplus,support_wlspen_cover_sync_magcvr");
 }
 
 #define IS_VALID_ICLMAX_COUNT(cnt) \

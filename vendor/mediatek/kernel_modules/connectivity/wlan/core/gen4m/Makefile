@@ -712,10 +712,12 @@ else
     ccflags-y += -DCFG_DRIVER_INITIAL_RUNNING_MODE=6
 endif
 
-ifneq ($(CONFIG_MTK_WIFI_CONNAC3X), y)
-ifneq ($(CONFIG_MTK_WIFI_CONNAC2X), y)
+ifeq ($(CONFIG_MTK_WIFI_CONNAC3X), y)
+    ccflags-y += -DCFG_SUPPORT_CONNAC1X=0
+else ifeq ($(CONFIG_MTK_WIFI_CONNAC2X), y)
+    ccflags-y += -DCFG_SUPPORT_CONNAC1X=0
+else
     ccflags-y += -DCFG_SUPPORT_CONNAC1X=1
-endif
 endif
 
 ifeq ($(CONFIG_MTK_WIFI_11AX_SUPPORT), y)
@@ -1101,7 +1103,7 @@ endif
 ifneq ($(TARGET_BUILD_VARIANT),user)
     ccflags-y += -DBUILD_QA_DBG=1
 else
-    ccflags-y += -DBUILD_QA_DBG=1
+    ccflags-y += -DBUILD_QA_DBG=0
 endif
 
 ifeq ($(CONFIG_MTK_COMBO_WIFI),y)

@@ -442,36 +442,36 @@ static int oplus_cpa_request_lock_vote_callback(struct votable *votable,
 
 	if (cpa->request_locked == !!locked)
 		return 0;
-
-	mutex_lock(&cpa->cpa_request_lock);
 	cpa->request_locked = !!locked;
 	if (!!locked)
 		chg_info("cpa request locked by %s\n", client);
 	else
 		chg_info("cpa request unlock\n");
 	if (cpa->request_locked)
-		goto out;
+		return 0;
 
 	if (!cpa->request_pending) {
+		mutex_lock(&cpa->cpa_request_lock);
 		chg_info("start request to_be_switched=0x%x protocol\n", READ_ONCE(cpa->protocol_to_be_switched));
 		protocol_identify_request(cpa, READ_ONCE(cpa->protocol_to_be_switched));
-		goto out;
+		mutex_unlock(&cpa->cpa_request_lock);
+		return 0;
 	}
 
 	cpa->request_pending = false;
 	if (cpa->def_req) {
 		chg_info("already request default protocol\n");
-		goto out;
+		return 0;
 	}
+	mutex_lock(&cpa->cpa_request_lock);
 	cpa->def_req = true;
 	chg_info("start request default protocol\n");
 	rc = oplus_cpa_request_default_protocol(cpa);
 	/* If setting protocol_to_be_switched fails, def_req should be set to false */
 	if (rc < 0 && rc != -EBUSY)
 		cpa->def_req = false;
-
-out:
 	mutex_unlock(&cpa->cpa_request_lock);
+
 	return 0;
 }
 
@@ -723,46 +723,6 @@ static void oplus_cpa_switch_end_work(struct work_struct *work)
 	mutex_unlock(&cpa->cpa_request_lock);
 }
 
-static void oplus_cpa_check_default_request(struct oplus_cpa *cpa)
-{
-	int rc;
-
-	mutex_lock(&cpa->cpa_request_lock);
-
-	if (cpa->def_req)
-		goto out;
-
-	if ((cpa->ready_protocol_type & cpa->default_protocol_type) !=
-	    cpa->default_protocol_type) {
-		chg_info("request pending, ready_protocol_type=0x%lx, "
-			"default_protocol_type=0x%x\n",
-			cpa->ready_protocol_type, cpa->default_protocol_type);
-		cpa->request_pending = true;
-	}
-	if (cpa->request_locked) {
-		chg_info("cpa request locked by %s\n",
-			get_effective_client(cpa->req_lock_votable));
-		cpa->request_pending = true;
-		goto out;
-	}
-
-	/* prevent online status changes */
-	if (!READ_ONCE(cpa->wired_online)) {
-		chg_err("wired is offline, can't request\n");
-		goto out;
-	}
-
-	cpa->def_req = true;
-	chg_info("start request default protocol\n");
-	rc = oplus_cpa_request_default_protocol(cpa);
-	/* If setting protocol_to_be_switched fails, def_req should be set to false */
-	if (rc < 0 && rc != -EBUSY)
-		cpa->def_req = false;
-
-out:
-	mutex_unlock(&cpa->cpa_request_lock);
-}
-
 static void oplus_cpa_chg_type_change_work(struct work_struct *work)
 {
 	struct oplus_cpa *cpa =
@@ -806,7 +766,32 @@ static void oplus_cpa_chg_type_change_work(struct work_struct *work)
 				}
 				fallthrough;
 			default:
-				oplus_cpa_check_default_request(cpa);
+				if (!cpa->def_req) {
+					if ((cpa->ready_protocol_type & cpa->default_protocol_type) !=
+					    cpa->default_protocol_type) {
+						chg_info("request pending, ready_protocol_type=0x%lx, "
+							"default_protocol_type=0x%x\n",
+							cpa->ready_protocol_type, cpa->default_protocol_type);
+						cpa->request_pending = true;
+					}
+					if (cpa->request_locked) {
+						chg_info("cpa request locked by %s\n",
+							get_effective_client(cpa->req_lock_votable));
+						cpa->request_pending = true;
+						break;
+					}
+					/* prevent online status changes */
+					if (!READ_ONCE(cpa->wired_online))
+						break;
+					mutex_lock(&cpa->cpa_request_lock);
+					cpa->def_req = true;
+					chg_info("start request default protocol\n");
+					rc = oplus_cpa_request_default_protocol(cpa);
+					/* If setting protocol_to_be_switched fails, def_req should be set to false */
+					if (rc < 0 && rc != -EBUSY)
+						cpa->def_req = false;
+					mutex_unlock(&cpa->cpa_request_lock);
+				}
 				break;
 			}
 			cpa->wired_real_chg_type = wired_type;
@@ -957,10 +942,8 @@ static void oplus_cpa_common_clear(struct oplus_cpa *cpa)
 static void oplus_cpa_offline_clear(struct oplus_cpa *cpa)
 {
 	oplus_cpa_set_current_protocol_type(cpa, CHG_PROTOCOL_INVALID);
-	mutex_lock(&cpa->cpa_request_lock);
 	cpa->def_req = false;
 	cpa->request_pending = false;
-	mutex_unlock(&cpa->cpa_request_lock);
 	cpa->wired_real_chg_type = OPLUS_CHG_USB_TYPE_UNKNOWN;
 #if IS_ENABLED(CONFIG_OPLUS_CHG_STATE_KEEP)
 	mutex_lock(&cpa->keep.ready_lock);

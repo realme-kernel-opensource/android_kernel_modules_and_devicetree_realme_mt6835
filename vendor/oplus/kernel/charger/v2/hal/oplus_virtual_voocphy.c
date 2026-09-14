@@ -465,8 +465,7 @@ static int oplus_chg_vphy_set_pdqc_config(struct oplus_chg_ic_dev *ic_dev)
 	return rc;
 }
 
-static int oplus_chg_vphy_set_usb_dischg_enable(struct oplus_chg_ic_dev *ic_dev,
-					bool enable)
+static int oplus_chg_vphy_set_usb_dischg_enable(struct oplus_chg_ic_dev *ic_dev, bool enable)
 {
 	int rc;
 	struct oplus_virtual_vphy_ic *va;
@@ -477,19 +476,14 @@ static int oplus_chg_vphy_set_usb_dischg_enable(struct oplus_chg_ic_dev *ic_dev,
 	}
 
 	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va == NULL) {
-		chg_err("va is NULL");
-		return -ENODEV;
-	}
-
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
+	if ((va == NULL) || (va->vphy == NULL)) {
+		chg_err("va or vphy is NULL");
 		return -ENODEV;
 	}
 
 	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_SET_USB_DISCHG_ENABLE, enable);
 	if (rc < 0)
-		chg_err("set pdqc config error, rc=%d\n", rc);
+		chg_err("set usb dischg enable error, rc=%d\n", rc);
 
 	return rc;
 }

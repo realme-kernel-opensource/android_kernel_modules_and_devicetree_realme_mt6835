@@ -39,6 +39,7 @@
 #endif
 
 #define LDO_ON_MA	100
+#define SC96257_AC_OV_FLAG	1  /*This IC has an AC_OV issue when used with the 0x0001 in-vehicle unit*/
 
 enum {
 	TX_STATUS_OFF,
@@ -2428,6 +2429,36 @@ static int wdt_close(struct oplus_sc96257 *chip)
 	return rc;
 }
 
+static int sram_write_prepare(struct oplus_sc96257 *chip)
+{
+	int rc;
+
+	rc = wdt_close(chip);
+	usleep_range(1000, 1100);
+	rc |= wdt_close(chip);
+	if (rc < 0) {
+		chg_err("WDT close failed\n");
+		return -EINVAL;
+	}
+
+	/*reset mcu*/
+	rc = sys_reset_ctrl(chip, true);
+	rc |= sys_reset_ctrl(chip, false);
+	if (rc < 0) {
+		chg_err("sys_reset_ctrl failed\n");
+		return -EINVAL;
+	}
+	usleep_range(2000, 2100);
+
+	rc = mcu_idle_ctrl(chip, true);
+	if (rc < 0) {
+		chg_err("mcu_idle_ctrl failed\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int sram_write(struct oplus_sc96257 *chip)
 {
 	int i;
@@ -2443,18 +2474,10 @@ static int sram_write(struct oplus_sc96257 *chip)
 		return -EINVAL;
 	}
 
-	rc = wdt_close(chip);
-	usleep_range(1000, 1100);
-	rc |= wdt_close(chip);
+	rc = sram_write_prepare(chip);
 	if (rc < 0) {
-		chg_err("WDT close failed\n");
-		return -EINVAL;
-	}
-
-	rc = mcu_idle_ctrl(chip, true);
-	if (rc < 0) {
-		chg_err("mcu_idle_ctrl failed\n");
-		return -EINVAL;
+		chg_err("sram write prepare failed\n");
+		return rc;
 	}
 
 	for (i = 0; i < size; i += PGM_WORD) {
@@ -3318,6 +3341,17 @@ static int sc96257_get_wlspen_chg_status(struct oplus_chg_ic_dev *dev, u8 *chg_s
 	return 0;
 }
 
+static int sc96257_get_ac_ov_flag(struct oplus_chg_ic_dev *dev, int *ac_ov_flag)
+{
+	if (dev == NULL || ac_ov_flag == NULL) {
+		chg_err("oplus_chg_ic_dev or ac_ov_flag is NULL\n");
+		return -ENODEV;
+	}
+	*ac_ov_flag = SC96257_AC_OV_FLAG;
+
+	return 0;
+}
+
 static int sc96257_fw_checksum(struct oplus_sc96257 *chip)
 {
 	u32 fw_check = 0;
@@ -3923,6 +3957,10 @@ static void *oplus_chg_rx_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_RX_GET_WLSPEN_CHG_STATUS:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_RX_GET_WLSPEN_CHG_STATUS,
 			sc96257_get_wlspen_chg_status);
+		break;
+	case OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG,
+			sc96257_get_ac_ov_flag);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);

@@ -1327,7 +1327,7 @@ static int sc8547_voocphy_hw_setting(struct oplus_voocphy_manager *voocphy, int 
 
 static int sc8547d_cp_manual_enable(struct oplus_voocphy_manager *chip, bool en)
 {
-	int ret;
+	int rc;
 	struct sc8547d_device *dev;
 
 	if (!chip) {
@@ -1336,25 +1336,25 @@ static int sc8547d_cp_manual_enable(struct oplus_voocphy_manager *chip, bool en)
 	}
 
 	dev = chip->priv_data;
-	if (dev == NULL) {
+	if ((dev == NULL) || (dev->client == NULL)) {
 		chg_err("sc8547d chip is NULL\n");
 		return -ENODEV;
 	}
 
 	if (en) {
-		ret = sc8547_update_bits(dev->client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, 0x80);
-		if (ret < 0) {
-			chg_err("Failed to enable manual mode, ret=%d\n", ret);
-			return ret;
+		rc = sc8547_update_bits(dev->client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, 0x80);
+		if (rc < 0) {
+			chg_err("Failed to enable manual mode, ret=%d\n", rc);
+			return rc;
 		}
-		chg_err("CTRL7:force Manual_en");
+		chg_info("CTRL7:force Manual_en");
 	} else {
-		ret = sc8547_update_bits(dev->client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, 0x00);
-		if (ret < 0) {
-			chg_err("Failed to disable manual mode, ret=%d\n", ret);
-			return ret;
+		rc = sc8547_update_bits(dev->client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, 0x00);
+		if (rc < 0) {
+			chg_err("Failed to disable manual mode, ret=%d\n", rc);
+			return rc;
 		}
-		chg_err("CTRL7:force Manual_disable");
+		chg_info("CTRL7:force Manual_disable");
 	}
 
 	return 0;
@@ -3758,6 +3758,15 @@ static int sc8547d_parse_dt(struct sc8547d_device *chip)
 		chip->vbus_ovp_reg = 0x50; /* VBUS_OVP 10V */
 	chg_err("vbus_ovp_reg=0x%02x\n", chip->vbus_ovp_reg);
 
+	chip->use_vooc_phy = of_property_read_bool(chip->dev->of_node, "oplus,use_vooc_phy");
+	chip->use_ufcs_phy = of_property_read_bool(chip->dev->of_node, "oplus,use_ufcs_phy");
+	chip->use_slave_cp = of_property_read_bool(chip->dev->of_node, "oplus,use_slave_cp");
+	chip->vac_support = of_property_read_bool(chip->dev->of_node, "oplus,vac_support");
+	chip->always_otg_en = of_property_read_bool(chip->dev->of_node, "oplus,always_otg_en");
+	chg_info("use_vooc_phy=%d, use_ufcs_phy=%d, use_slave_cp=%d, vac_support=%d, always_otg_en=%d\n",
+		 chip->use_vooc_phy, chip->use_ufcs_phy, chip->use_slave_cp, chip->vac_support,
+		 chip->always_otg_en);
+
 	return 0;
 }
 
@@ -3765,6 +3774,13 @@ static void sc8547d_chgen_default(struct sc8547d_device *chip)
 {
 	sc8547_update_bits(chip->client, SC8547_REG_07, SC8547_CHG_EN_MASK, 0x00);
 	return;
+}
+
+static void sc8547_mms_wait_topic(struct sc8547d_device *chip)
+{
+	if (chip->use_ufcs_phy)
+		oplus_mms_wait_topic("error", sc8547d_subscribe_error_topic, chip);
+	oplus_mms_wait_topic("wired", sc8547d_subscribe_wired_topic, chip);
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
@@ -3821,23 +3837,15 @@ static int sc8547d_driver_probe(struct i2c_client *client,
 	sc8547_create_device_node(&(client->dev));
 	sc8547d_chgen_default(chip);
 
-	chip->use_vooc_phy = of_property_read_bool(chip->dev->of_node, "oplus,use_vooc_phy");
-	chip->use_ufcs_phy = of_property_read_bool(chip->dev->of_node, "oplus,use_ufcs_phy");
-	chip->use_slave_cp = of_property_read_bool(chip->dev->of_node, "oplus,use_slave_cp");
-	chip->vac_support = of_property_read_bool(chip->dev->of_node, "oplus,vac_support");
-	chip->always_otg_en = of_property_read_bool(chip->dev->of_node, "oplus,always_otg_en");
-	chg_info("use_vooc_phy=%d, use_ufcs_phy=%d, use_slave_cp=%d, vac_support=%d, always_otg_en=%d\n",
-		 chip->use_vooc_phy, chip->use_ufcs_phy, chip->use_slave_cp, chip->vac_support,
-		 chip->always_otg_en);
-
 	if (chip->use_vooc_phy) {
 		rc = sc8547_charger_choose(chip);
 		if (rc <= 0) {
 			chg_err("choose error, rc=%d\n", rc);
 			goto regmap_init_err;
 		}
-		if (!sc8547d_hw_version_check(chip))
+		if (!sc8547d_hw_version_check(chip)) {
 			chg_err("not sc8547d\n");
+		}
 
 		voocphy->ops = &oplus_sc8547_ops;
 		chip->voocphy_mg = voocphy;
@@ -3902,9 +3910,7 @@ skip_ufcs_reg:
 	chip->voocphy_enable = false;
 	vote(chip->disable_votable, DEF_VOTER, false, 0, false);
 
-	if (chip->use_ufcs_phy)
-		oplus_mms_wait_topic("error", sc8547d_subscribe_error_topic, chip);
-	oplus_mms_wait_topic("wired", sc8547d_subscribe_wired_topic, chip);
+	sc8547_mms_wait_topic(chip);
 	chg_info("sc8547d(%s) probe successfully\n", chip->dev->of_node->name);
 
 	return 0;
@@ -3932,18 +3938,20 @@ static void sc8547d_shutdown(struct i2c_client *client)
 {
 	int ret;
 	u8 value = 0;
-	sc8547_update_bits(client, SC8547_REG_07, SC8547_CHG_EN_MASK, 0x00);
-	sc8547_write_byte(client, SC8547_REG_11, 0x00);
-	sc8547_write_byte(client, SC8547_REG_21, 0x00);
-	sc8547_read_byte(client, SC8547_REG_0C, &value);
 
-	if (value != 0) {
-		ret = sc8547_update_bits(client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, 0x00);
+	ret = sc8547_read_byte(client, SC8547_REG_0C, &value);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read REG_0C: %d\n", ret);
+	} else if ((value & 0x80) != 0) {
+		value = 0;
+		ret = sc8547_update_bits(client, SC8547_REG_0C, SC8547_IBUS_REG_EN_MASK, value);
 		if (ret < 0) {
 			dev_err(&client->dev, "Failed to update SC8547_REG_0C: %d\n", ret);
 		}
 	}
-
+	sc8547_update_bits(client, SC8547_REG_07, SC8547_CHG_EN_MASK, 0x00);
+	sc8547_write_byte(client, SC8547_REG_11, 0x00);
+	sc8547_write_byte(client, SC8547_REG_21, 0x00);
 	return;
 }
 

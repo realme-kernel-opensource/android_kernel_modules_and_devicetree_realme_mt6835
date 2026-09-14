@@ -188,7 +188,6 @@ struct sy6974b_chip {
 	struct tcpc_device *tcpc;
 	struct notifier_block pd_nb;
 	struct delayed_work fcc_rerun_work;
-	bool usbtemp_dischg_en;
 };
 
 enum {
@@ -199,6 +198,12 @@ enum {
 	CHARGE_TYPE_VBUS_TYPE_UNKNOWN = 5,
 	CHARGE_TYPE_OCP,
 	CHARGE_TYPE_OTG,
+};
+
+enum {
+	SY6974B_REALLY_SUSPEND_SET = 0,
+	SY6974B_USBTEMP_DISCHG_SET,
+	SY6974B_HIZ_SET_MAX,
 };
 
 static struct regmap_config sy6974b_regmap_config = {
@@ -541,12 +546,6 @@ static void sy6974b_event_work(struct work_struct *work)
 
 	sy6974b_pluggable_event_work(chip, curr_pg, prev_pg);
 
-#ifdef CONFIG_OPLUS_CHARGER_MTK
-	if (chip->oplus_charger_type == POWER_SUPPLY_TYPE_USB_CDP)
-		oplus_chg_pullup_dp_set(true);
-	else
-		oplus_chg_pullup_dp_set(false);
-#endif
 	sy6974b_get_bc12(chip);
 	oplus_chg_ic_virq_trigger(chip->ic_dev, OPLUS_IC_VIRQ_PLUGIN);
 	return;
@@ -1050,7 +1049,7 @@ static void sy6974b_subscribe_vooc_topic(struct oplus_mms *topic, void *prv_data
 	chip->vooc_topic = topic;
 	chip->vooc_subs = oplus_mms_subscribe(chip->vooc_topic, chip,
 					      oplus_vooc_subs_callback,
-					      "chg_wired");
+					      "sy6974b");
 	if (IS_ERR_OR_NULL(chip->vooc_subs)) {
 		chg_err("subscribe vooc topic error, rc=%ld\n",
 			PTR_ERR(chip->vooc_subs));
@@ -1170,6 +1169,39 @@ static bool sy6974b_check_force_unsuspend_charger(struct sy6974b_chip *chip, boo
 	}
 }
 
+static int sy6974b_hiz_set(struct sy6974b_chip *chip, bool en, int type)
+{
+	int rc = 0;
+	bool target_en;
+	static int really_suspend_en = 0, usbtemp_dischg_en = 0;
+
+	if (!chip)
+		return -ENODEV;
+
+	if (type == SY6974B_REALLY_SUSPEND_SET) {
+		really_suspend_en = en ? 1 : 0;
+	} else {
+		usbtemp_dischg_en = en ? 1 : 0;
+	}
+
+	target_en = (really_suspend_en || usbtemp_dischg_en);
+
+	chg_info("type=%d, en=%d , status[suspend=%d, usbtemp=%d] -> target=%d\n",
+		 type, en, really_suspend_en, usbtemp_dischg_en, target_en);
+
+	if (target_en == sy6974b_check_really_suspend_charger(chip))
+		return rc;
+
+	rc = sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
+		REG00_SY6974B_SUSPEND_MODE_MASK,
+		target_en ? REG00_SY6974B_SUSPEND_MODE_ENABLE : REG00_SY6974B_SUSPEND_MODE_DISABLE);
+
+	if (rc < 0)
+		chg_err("Failed to set HIZ register, rc=%d\n", rc);
+
+	return rc;
+}
+
 static void sy6974b_really_suspend_charger(struct sy6974b_chip *chip, bool en)
 {
 	if (!chip || sy6974b_check_force_unsuspend_charger(chip, en)) {
@@ -1178,26 +1210,19 @@ static void sy6974b_really_suspend_charger(struct sy6974b_chip *chip, bool en)
 
 	chg_info("sy6974b_really_suspend_charger en:%d\n", en);
 
-	if (en == sy6974b_check_really_suspend_charger(chip))
-		return;
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 	if (get_boot_mode() != META_BOOT)
-		sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
-			REG00_SY6974B_SUSPEND_MODE_MASK,
-			en ? REG00_SY6974B_SUSPEND_MODE_ENABLE : REG00_SY6974B_SUSPEND_MODE_DISABLE);
+		sy6974b_hiz_set(chip, en, SY6974B_REALLY_SUSPEND_SET);
+
 	else
-		sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
-			REG00_SY6974B_SUSPEND_MODE_MASK, REG00_SY6974B_SUSPEND_MODE_DISABLE);
+		sy6974b_hiz_set(chip, false, SY6974B_REALLY_SUSPEND_SET);
 
 #else
-	if (get_boot_mode() != META_BOOT)
-		sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
-			REG00_SY6974B_SUSPEND_MODE_MASK,
-			en ? REG00_SY6974B_SUSPEND_MODE_ENABLE : REG00_SY6974B_SUSPEND_MODE_DISABLE);
+	if (!oplus_is_rf_ftm_mode())
+		sy6974b_hiz_set(chip, en, SY6974B_REALLY_SUSPEND_SET);
 	else
-		sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
-			REG00_SY6974B_SUSPEND_MODE_MASK, REG00_SY6974B_SUSPEND_MODE_DISABLE);
+		sy6974b_hiz_set(chip, false, SY6974B_REALLY_SUSPEND_SET);
 #endif
 #endif
 	chip->suspend_check_cnt = FCC_VOTE_CHECK_DEF_VAL*2;
@@ -1637,9 +1662,6 @@ static int sy6974b_set_usbtemp_dischg_enable(struct oplus_chg_ic_dev *ic_dev, bo
 		return -ENODEV;
 	}
 
-	chip->usbtemp_dischg_en = en;
-	chg_err("usbtemp_dischg_en = %d\n", chip->usbtemp_dischg_en);
-
 	if (en) {
 		rc = sy6974b_disable_charger(chip);
 		if (rc < 0) {
@@ -1654,9 +1676,7 @@ static int sy6974b_set_usbtemp_dischg_enable(struct oplus_chg_ic_dev *ic_dev, bo
 		}
 	}
 
-	rc = sy6974b_write_byte_mask(chip, REG00_SY6974B_ADDRESS,
-			REG00_SY6974B_SUSPEND_MODE_MASK,
-			en ? REG00_SY6974B_SUSPEND_MODE_ENABLE : REG00_SY6974B_SUSPEND_MODE_DISABLE);
+	rc = sy6974b_hiz_set(chip, en, SY6974B_USBTEMP_DISCHG_SET);
 	if (rc < 0) {
 		chg_err("sy6974b_write_byte_mask reg00 failed, rc=%d\n", rc);
 		return rc;
@@ -2498,21 +2518,13 @@ static int sy6974b_hardware_init(struct sy6974b_chip *chip)
 	sy6974b_set_otg_voltage(chip, REG06_SY6974B_OTG_VLIM_5150MV);
 
 	sy6974b_batfet_reset_disable(chip, chip->batfet_reset_disable);
-	if(!chip->usbtemp_dischg_en){
-		chg_err("usbtemp_dischg_en is false in hw init\n");
-		sy6974b_really_suspend_charger(chip, false);
-	}
+	sy6974b_really_suspend_charger(chip, false);
 
 	if (oplus_is_rf_ftm_mode()) {
 		sy6974b_disable_charger(chip);
 		sy6974b_suspend_charger_input(chip);
 	} else {
-		if(chip->usbtemp_dischg_en){
-			chg_err("usbtemp_dischg_en is true, skip unsuspend charger input\n");
-		} else {
-			chg_err("unsuspend charger input\n");
-			sy6974b_unsuspend_charger_input(chip);
-		}
+		sy6974b_unsuspend_charger_input(chip);
 		sy6974b_enable_charger(chip);
 	}
 
@@ -2693,6 +2705,7 @@ static void sy6974b_get_bc12(struct sy6974b_chip *chip)
 
 			#ifdef CONFIG_OPLUS_CHARGER_MTK
 			sy6974b_inform_charger_type(chip);
+			oplus_chg_pullup_dp_set(true);
 			#else
 			oplus_set_usb_props_type(chip->oplus_charger_type);
 			#endif
@@ -3083,7 +3096,6 @@ static int sy6974b_driver_probe(struct i2c_client *client,
 	}
 #endif
 
-	chip->usbtemp_dischg_en = false;
 	chip->power_good = false;
 	chip->bc12_done = false;
 	chip->bc12_retried = 0;
@@ -3255,7 +3267,6 @@ static void sy6974b_shutdown(struct i2c_client *client)
 				chg_err("sy6974b_write_byte_mask HIZ mode failed, rc = %d\n", rc);
 		}
 	}
-
 	if (oplus_wired_shipmode_is_enabled()) {
 		chg_info(" enable ship mode \n");
 		val = SY6974_BATFET_OFF << REG07_SY6974B_BATFET_DIS_SHIFT;

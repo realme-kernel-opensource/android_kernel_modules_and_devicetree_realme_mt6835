@@ -864,8 +864,40 @@
                     }
                 }
             }
+        },
+        {
+            "lable": "OPLUS_IC_FUNC_CP_GET_REVERSE_VOUT",
+            "desc": {
+                "zh": "获取电荷泵反向输出电压"
+            },
+            "auto_debug_code": true,
+            "parameter_list": ["int *"],
+            "parameter_desc": [
+                {
+                    "range": "0-*",
+                    "type": "out",
+                    "desc": {
+                        "zh": "电荷泵获取反向输出电压,单位mV"
+                    }
+                }
+            ],
+            "vict": {
+               "read": {
+                    "cmd": "vict -f {id} -G vic-*",
+                    "desc": {
+                        "zh": "返回获取到的电压"
+                    }
+                },
+                "write": false,
+                "overwrite": {
+                    "cmd": "vict -f {id} -O {val} vic-*",
+                    "desc": {
+                        "zh": "使用val覆盖传出的电压"
+                    }
+                }
+            }
         }
     ],
 
-    "version": "V2.5:22:d63fb5ecff8f94d1af1101f35342522979899d4afc97eec7a75dce94f7aed103"
+    "version": "V2.6:23:d5086394b1f02a1a8a6f4c94bf38ebbe5bdcf48749e8842a63d691333f7ec47c"
 }

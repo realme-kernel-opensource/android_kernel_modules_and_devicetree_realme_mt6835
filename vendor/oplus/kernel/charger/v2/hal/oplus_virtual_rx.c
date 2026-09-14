@@ -1551,6 +1551,32 @@ static int oplus_chg_vr_get_wlspen_chg_status(struct oplus_chg_ic_dev *ic_dev, u
 	return rc;
 }
 
+static int oplus_chg_vr_get_ac_ov_flag(struct oplus_chg_ic_dev *ic_dev, int *ac_ov_flag)
+{
+	struct oplus_virtual_rx_ic *vr;
+	int i;
+	int rc = 0;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL\n");
+		return -ENODEV;
+	}
+
+	vr = oplus_chg_ic_get_drvdata(ic_dev);
+	for (i = 0; i < vr->child_num; i++) {
+		if (!func_is_support(&vr->child_list[i], OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG)) {
+			rc = (rc == 0) ? -ENOTSUPP : rc;
+			continue;
+		}
+		rc = oplus_chg_ic_func(vr->child_list[i].ic_dev, OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG, ac_ov_flag);
+		if (rc < 0)
+			chg_err("child ic[%d] get_ac_ov_flag error, rc=%d\n", i, rc);
+		break;
+	}
+
+	return rc;
+}
+
 static void *oplus_chg_vr_get_func(struct oplus_chg_ic_dev *ic_dev,
 				   enum oplus_chg_ic_func func_id)
 {
@@ -1742,6 +1768,10 @@ static void *oplus_chg_vr_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_RX_GET_WLSPEN_CHG_STATUS:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_RX_GET_WLSPEN_CHG_STATUS,
 			    oplus_chg_vr_get_wlspen_chg_status);
+		break;
+	case OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG,
+			    oplus_chg_vr_get_ac_ov_flag);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);

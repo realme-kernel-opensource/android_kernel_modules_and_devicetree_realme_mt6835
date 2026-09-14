@@ -421,30 +421,30 @@
                 "write": false,
                 "overwrite": false
             }
-       },
-       {
+        },
+        {
             "lable": "OPLUS_IC_FUNC_VOOCPHY_SET_USB_DISCHG_ENABLE",
-           "desc": {
-               "zh": "使能或关闭 acdrv"
-           },
-           "auto_debug_code": true,
-           "parameter_list": ["bool"],
-           "parameter_desc": [
-               {
-                   "range": "0-1",
-                   "type": "in",
-                   "desc": {
-                       "zh": "1: 使能, 0: 关闭"
-                   }
-               }
-           ],
-           "vict": {
-               "read": false,
-               "write": false,
-               "overwrite": false
+            "desc": {
+                "zh": "enable or disable acdrv"
+            },
+            "auto_debug_code": true,
+            "parameter_list": ["bool"],
+            "parameter_desc": [
+                {
+                    "range": "0-1",
+                    "type": "in",
+                    "desc": {
+                        "zh": "1: ENABLE, 0: DISABLE"
+                    }
+                }
+            ],
+            "vict": {
+                "read": false,
+                "write": false,
+                "overwrite": false
             }
         }
     ],
 
-    "version": "V5.0:20:52269ec7decb48f1a7cfa5d7713be334f142945021a2b1cc5a608f2e58db0cd7"
+    "version": "V6.0:20:52269ec7decb48f1a7cfa5d7713be334f142945021a2b1cc5a608f2e58db0cd7"
 }

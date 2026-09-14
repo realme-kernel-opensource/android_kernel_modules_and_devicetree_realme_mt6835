@@ -54,6 +54,7 @@ int oplus_chg_wls_rx_send_epp_match_q(struct oplus_chg_ic_dev *rx_ic, u8 data[])
 int oplus_chg_wls_rx_get_ble_mac_addr(struct oplus_chg_ic_dev *rx_ic, u64 *mac_addr);
 int oplus_chg_wls_rx_get_wlspen_id(struct oplus_chg_ic_dev *rx_ic, u8 *wlspen_id);
 int oplus_chg_wls_rx_get_wlspen_chg_status(struct oplus_chg_ic_dev *rx_ic, u8 *chg_status);
+int oplus_chg_wls_rx_get_ac_ov_flag(struct oplus_chg_ic_dev *rx_ic, int *ac_ov_flag);
 
 /*wls nor APIs*/
 int oplus_chg_wls_nor_set_input_enable(struct oplus_chg_ic_dev *nor_ic, bool en);

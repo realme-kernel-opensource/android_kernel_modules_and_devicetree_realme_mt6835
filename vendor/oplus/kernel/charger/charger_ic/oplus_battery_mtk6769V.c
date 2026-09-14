@@ -5807,6 +5807,10 @@ err_battery_psy:
 	return ret;
 }
 
+#define VBUS_9V	9000
+#define VBUS_5V	5000
+#define IBUS_2A	2000
+#define IBUS_3A	3000
 int oplus_pdc_setup(int *vbus_mv, int *ibus_ma)
 {
 	int ret = 0;
@@ -5819,6 +5823,11 @@ int oplus_pdc_setup(int *vbus_mv, int *ibus_ma)
 		printk(KERN_ERR "%s:get type_c_port0 fail\n", __func__);
 		return -EINVAL;
 	}
+
+	if (*vbus_mv == VBUS_5V)
+		ret = tcpm_set_pd_charging_policy(tcpc, DPM_CHARGING_POLICY_VSAFE5V, NULL);
+	else
+		ret = tcpm_set_pd_charging_policy(tcpc, DPM_CHARGING_POLICY_MAX_POWER_LVIC, NULL);
 
 	ret = tcpm_dpm_pd_request(tcpc, *vbus_mv, *ibus_ma, NULL);
 	if (ret != TCPM_SUCCESS) {

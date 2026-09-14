@@ -731,6 +731,22 @@ int oplus_chg_wls_rx_get_wlspen_chg_status(struct oplus_chg_ic_dev *rx_ic, u8 *c
 	return rc;
 }
 
+int oplus_chg_wls_rx_get_ac_ov_flag(struct oplus_chg_ic_dev *rx_ic, int *ac_ov_flag)
+{
+	int rc;
+
+	if (rx_ic == NULL) {
+		chg_err("rx_ic is NULL\n");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(rx_ic, OPLUS_IC_FUNC_RX_GET_AC_OV_FLAG, ac_ov_flag);
+	if (rc < 0 && rc != -ENOTSUPP)
+		chg_err("can't get ac_ov_flag, rc=%d\n", rc);
+
+	return rc;
+}
+
 int oplus_chg_wls_rx_smt_test(struct oplus_chg_ic_dev *rx_ic)
 {
 	int rc;

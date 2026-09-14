@@ -518,6 +518,66 @@ __maybe_unused static int sc6607_write_data(struct sc6607 *chip, u8 addr, u8 *bu
 	return ret;
 }
 
+static int sc6607_i2c_addr_read_byte(struct sc6607 *chip, u8 i2c_addr, u8 reg, u8 *val)
+{
+	struct i2c_msg xfer[2];
+	int ret;
+
+	if (!chip || !chip->client || !chip->client->adapter)
+		return -EINVAL;
+
+	xfer[0].addr = i2c_addr;
+	xfer[0].flags = 0;
+	xfer[0].len = 1;
+	xfer[0].buf = &reg;
+
+	xfer[1].addr = i2c_addr;
+	xfer[1].flags = I2C_M_RD;
+	xfer[1].len = 1;
+	xfer[1].buf = val;
+
+	ret = i2c_transfer(chip->client->adapter, xfer, ARRAY_SIZE(xfer));
+	if (ret != ARRAY_SIZE(xfer)) {
+		if (ret < 0)
+			chg_err("i2c transfer failed, addr=0x%02x, reg=0x%02x, ret=%d\n", i2c_addr, reg, ret);
+		else
+			chg_err("i2c transfer EIO, addr=0x%02x, reg=0x%02x, ret=%d\n", i2c_addr, reg, ret);
+		return ret < 0 ? ret : -EIO;
+	}
+
+	return 0;
+}
+
+static int sc6607_i2c_addr_write_byte(struct sc6607 *chip, u8 i2c_addr, u8 reg, u8 val)
+{
+	struct i2c_msg xfer[1];
+	u8 write_buf[2];
+	int ret;
+
+	if (!chip || !chip->client || !chip->client->adapter)
+		return -EINVAL;
+
+	write_buf[0] = reg;
+	write_buf[1] = val;
+
+	xfer[0].addr = i2c_addr;
+	xfer[0].flags = 0;
+	xfer[0].len = sizeof(write_buf);
+	xfer[0].buf = write_buf;
+
+	ret = i2c_transfer(chip->client->adapter, xfer, 1);
+	if (ret == 1) {
+		chg_info("i2c transfer successfully, addr=0x%02x, reg=0x%02x, val=0x%02x\n", i2c_addr, reg, val);
+		return 0;
+	} else if (ret < 0) {
+		chg_err("i2c transfer failed, addr=0x%02x, reg=0x%02x, ret=%d\n", i2c_addr, reg, ret);
+		return ret;
+	} else {
+		chg_err("i2c transfer EIO, addr=0x%02x, reg=0x%02x, ret=%d\n", i2c_addr, reg, ret);
+		return -EIO;
+	}
+}
+
 static void oplus_chg_get_batt_volt(int *batt_volt)
 {
 	union mms_msg_data data = {0};
@@ -2894,6 +2954,28 @@ static void sc6607_set_cc_pull_down_idrive(struct sc6607 *chip)
 		chg_info("i2c transfer EIO\n");
 }
 
+static void sc6607_set_adc_sampling_mode_config(struct sc6607 *chip)
+{
+	u8 val = 0;
+	int ret;
+
+	if (!chip || !chip->client || !chip->client->adapter)
+		return;
+
+	/* read current value of reg 0xAE from I2C addr 0x64 (LED_SLAVE_ADDRESS) */
+	ret = sc6607_i2c_addr_read_byte(chip, LED_SLAVE_ADDRESS, SC6607_REG_ADC_SAMPLING_MODE_CFG_REG, &val);
+	if (ret < 0)
+		return;
+
+	chg_info("read reg 0x%x value:0x%x\n", SC6607_REG_ADC_SAMPLING_MODE_CFG_REG, val);
+	/* clear bit2 then write back */
+	val &= ~SC6607_LED_ADC_SAMPLING_MODE_CONFIG_MASK;
+
+	ret = sc6607_i2c_addr_write_byte(chip, LED_SLAVE_ADDRESS, SC6607_REG_ADC_SAMPLING_MODE_CFG_REG, val);
+	if (ret < 0)
+		return;
+}
+
 static void sc6607_set_continuous_time(struct sc6607 *chip)
 {
 	int ret = 0;
@@ -3018,6 +3100,7 @@ static int sc6607_init_device(struct sc6607 *chip)
 		sc6607_set_pd_phy_tx_discard_time(chip);
 		sc6607_set_continuous_time(chip);
 		sc6607_enter_test_mode(chip, false);
+		sc6607_set_adc_sampling_mode_config(chip);
 	}
 
 	ret = sc6607_set_prechg_current(chip, chip->platform_data->iprechg);

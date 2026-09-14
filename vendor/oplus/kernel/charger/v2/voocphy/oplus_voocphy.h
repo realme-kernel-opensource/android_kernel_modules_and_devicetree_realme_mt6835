@@ -835,6 +835,7 @@ struct oplus_voocphy_manager {
 	struct batt_sys_curves *batt_sys_curv_by_tmprange;
 	unsigned char cur_sys_curv_idx;
 	int sys_curve_temp_idx;
+	int temp_region_cnt;
 
 	struct vooc_monitor_event mornitor_evt[MONITOR_EVENT_NUM];
 
@@ -957,6 +958,8 @@ struct oplus_voocphy_manager {
 	bool in_vbus_adjust_trans;
 	u8 vbus_adjust_hold_cnt;
 	u8 last_vooc_vbus_status;
+	struct oplus_chg_strategy *ccd_strategy;
+	bool twice_request_current_enable;
 };
 
 struct oplus_voocphy_operations {

@@ -1363,10 +1363,13 @@ int oplus_ofp_video_mode_aod_handle(void *drm_crtc, void *mtk_panel_ext, void *d
 				OFP_INFO("set_aod_light_mode:%u\n", p_oplus_ofp_params->aod_light_mode);
 			}
 		}
-	} else if ((oplus_ofp_get_aod_state() && (refresh_rate != 30)) || (p_oplus_ofp_params->doze_active != 0 && (refresh_rate != 30))) {
+	} else if (oplus_ofp_get_aod_state() && (refresh_rate != 30)) {
 		if (ext && ext->funcs && ext->funcs->doze_disable) {
 			OFP_INFO("debug for doze_disable\n");
 			ext->funcs->doze_disable(drm_panel, mtk_dsi, dcs_write_gce, handle);
+			if (ext && ext->funcs && ext->funcs->set_backlight_cmdq) {
+				ext->funcs->set_backlight_cmdq(mtk_dsi, dcs_write_gce, handle, oplus_display_brightness);
+			}
 			oplus_ofp_set_aod_state(false);
 		}
 	}
@@ -1419,7 +1422,8 @@ int oplus_ofp_aod_off_set(void)
 	if (oplus_ofp_get_aod_state() && p_oplus_ofp_params->doze_active != 0) {
 		OFP_INFO("queue aod off set work\n");
 		queue_work(p_oplus_ofp_params->aod_off_set_wq, &p_oplus_ofp_params->aod_off_set_work);
-		oplus_ofp_set_aod_state(false);
+		if (!oplus_ofp_video_mode_30hz_aod_is_enabled())
+			oplus_ofp_set_aod_state(false);
 	}
 	oplus_disp_trace_end("oplus_ofp_aod_off_set");
 
